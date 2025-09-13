@@ -144,8 +144,9 @@ app.MapPost("/register-folder", async Task<IResult> (AppDbContext db, [FromBody]
     return Results.Ok(new { Message = $"{addedCount} images indexed for user '{request.Username}'." });
 }).DisableAntiforgery();
 
-app.MapOpenApi();
-app.MapScalarApiReference();
+app.MapOpenApi(); 
+app.MapScalarApiReference(options => options.Servers = []);
+
 
 app.Run();
 
