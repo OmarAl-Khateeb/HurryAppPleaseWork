@@ -1,0 +1,6 @@
+@HurryAppPleaseWork_HostAddress = http://localhost:5116
+
+GET {{HurryAppPleaseWork_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
