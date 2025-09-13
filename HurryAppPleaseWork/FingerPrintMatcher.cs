@@ -3,7 +3,6 @@ using OpenCvSharp;
 using SourceAFIS;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Runtime.Intrinsics.Arm;
 
 namespace HurryAppPleaseWork
 {

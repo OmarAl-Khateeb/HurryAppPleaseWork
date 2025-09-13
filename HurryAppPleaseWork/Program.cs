@@ -1,11 +1,12 @@
 using HurryAppPleaseWork;
 using HurryAppPleaseWork.Models;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OpenCvSharp;
 using Scalar.AspNetCore;
 using SourceAFIS;
-using StackExchange.Redis;
+using System.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,10 +43,10 @@ app.MapPost("/register", async Task<IResult> (AppDbContext db, IFormFile file, [
     return Results.Ok();
 }).DisableAntiforgery();
 
-app.MapPost("/match", async Task<IResult> (AppDbContext db, IFormFile file) =>
+app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (AppDbContext db, IFormFile file) =>
 {
     if (file == null)
-        return Results.BadRequest("File or username is missing.");
+        return TypedResults.BadRequest("File or username is missing.");
 
     // Save the uploaded file temporarily
     var tempPath = Path.GetTempFileName();
@@ -63,6 +64,8 @@ app.MapPost("/match", async Task<IResult> (AppDbContext db, IFormFile file) =>
             .Select(t => new { Rect = t.Rect.ToRectangle(), Template = new FingerprintTemplate(t.Template) })
             .ToList()
     }).ToListAsync();
+
+    var timestamp = Stopwatch.GetTimestamp();
 
     var bestMatch = get
         .Select(user => new
@@ -85,22 +88,26 @@ app.MapPost("/match", async Task<IResult> (AppDbContext db, IFormFile file) =>
         .OrderByDescending(x => x.BestOverlap.bestScore)
         .FirstOrDefault();
 
-    if (bestMatch != null)
-    {
-        return Results.Ok(new
-        {
-            Username = bestMatch.User.Username,
-            Score = bestMatch.BestOverlap.bestScore
-        });
-    }
-    //db.Results.Add(prob);
-    await db.SaveChangesAsync();
-
-    // Clean up temp file
     File.Delete(tempPath);
 
-    return Results.Ok();
+    if (bestMatch != null)
+    {
+        return TypedResults.Ok(new ScoreResult(
+        bestMatch.User.Username,
+        bestMatch.BestOverlap.bestScore,
+        ScoreToCertainty(bestMatch.BestOverlap.bestScore),
+        $"{Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds}ms"
+        ));
+    }
+    return TypedResults.BadRequest("well");
 }).DisableAntiforgery();
+
+static double ScoreToCertainty(double score, double S0 = 80, double k = 0.02)
+{
+    // Logistic function
+    double certainty = 1.0 / (1.0 + Math.Exp(-k * (score - S0)));
+    return certainty * 100.0;
+}
 
 app.MapPost("/register-folder", async Task<IResult> (AppDbContext db, [FromBody] RegisterFolderRequest request) =>
 {
@@ -153,3 +160,5 @@ public class RegisterFolderRequest
     public string FolderPath { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
 }
+
+internal record ScoreResult(string Username, double Score, double Certainty, string MatchingTime);
