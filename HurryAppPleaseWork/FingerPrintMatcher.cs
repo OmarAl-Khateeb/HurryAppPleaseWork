@@ -3,6 +3,7 @@ using OpenCvSharp;
 using SourceAFIS;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace HurryAppPleaseWork
 {
@@ -50,81 +51,51 @@ namespace HurryAppPleaseWork
             {
                 Username = username,
                 ImageMatrix = imageBytes,
-                Templates = [.. probeTemplates.Select(x => new ProbRectTemplate { Rect = RectRecord.FromRectangle(x.rect), Template = x.template.ToByteArray() })],
+                Templates = [.. probeTemplates.Select(x => new ProbRectTemplate { Rect = x.rect, Template = x.template.ToByteArray() })],
             };
         }
         public static (double bestScore, (Rect probeRect, Rect candRect) bestAnchor, Rect bestProbeOverlap, Rect bestCandOverlap)
-        FindBestOverlap(
-            List<(Rect probeRect, Rect candRect, double score)> anchors,
-            Mat probeGray,
-            Mat candGray,
-            int dpi,
-            double minAnchorScore = 0)
-        {
-            double bestOverlapScore = double.NegativeInfinity;
-            (Rect probeRect, Rect candRect) bestAnchor = default;
-            Rect bestProbeOverlap = default;
-            Rect bestCandOverlap = default;
-
-            foreach (var a in anchors)
+        FindBestOverlap(List<(Rect probeRect, Rect candRect, double score)> anchors, Mat probeGray, Mat candGray, int dpi, double minAnchorScore = 0)
+            => anchors
+            .Where(a => a.score >= minAnchorScore)
+            .Select(a =>
             {
-                if (a.score < minAnchorScore) continue;
-
-                // Compute translation using centers
                 var probeCenter = Center(a.probeRect);
                 var candCenter = Center(a.candRect);
                 int transX = candCenter.X - probeCenter.X;
                 int transY = candCenter.Y - probeCenter.Y;
 
-                // Shift probe by (transX, transY) and compute overlap rects
-                if (!ComputeOverlapRects(transX, transY, out Rect probeOverlap, out Rect candOverlap))
-                    continue;
+                if (!ComputeOverlapRects(transX, transY, out Rect probeOverlap, out Rect candOverlap)) return null;
 
-                // Skip small overlaps
-                if (probeOverlap.Width < 16 || probeOverlap.Height < 16) continue;
+                if (probeOverlap.Width < 16 || probeOverlap.Height < 16) return null;
 
-                // Extract Mats for overlap
                 using var probePatch = new Mat(probeGray, probeOverlap);
                 using var candPatch = new Mat(candGray, candOverlap);
 
-                // Encode to BMP and create SourceAFIS templates
                 Cv2.ImEncode(".bmp", probePatch, out byte[] probeBmp);
                 Cv2.ImEncode(".bmp", candPatch, out byte[] candBmp);
 
-                //var probePath = Path.Combine("output", $"probe_{Guid.NewGuid()}.bmp");
-                //var candPath = Path.Combine("output", $"cand_{Guid.NewGuid()}.bmp");
+                var probeTpl = new FingerprintTemplate(
+                    new FingerprintImage(probeBmp, new FingerprintImageOptions { Dpi = dpi }));
+                var candTpl = new FingerprintTemplate(
+                    new FingerprintImage(candBmp, new FingerprintImageOptions { Dpi = dpi }));
 
-                //// Ensure output directory exists
-                //Directory.CreateDirectory("output");
+                double score = new FingerprintMatcher(probeTpl).Match(candTpl);
 
-                //// Write files
-                //File.WriteAllBytes(probePath, probeBmp);
-                //File.WriteAllBytes(candPath, candBmp);
-
-                var probeImg = new FingerprintImage(probeBmp, new FingerprintImageOptions { Dpi = dpi });
-                var candImg = new FingerprintImage(candBmp, new FingerprintImageOptions { Dpi = dpi });
-
-                var probeTpl = new FingerprintTemplate(probeImg);
-                var candTpl = new FingerprintTemplate(candImg);
-
-                var matcher = new FingerprintMatcher(probeTpl);
-                double overlapScore = matcher.Match(candTpl);
-
-                if (overlapScore > bestOverlapScore)
+                return new
                 {
-                    bestOverlapScore = overlapScore;
-                    bestAnchor = (a.probeRect, a.candRect);
-                    bestProbeOverlap = probeOverlap;
-                    bestCandOverlap = candOverlap;
-                }
-            }
+                    Score = score,
+                    Anchor = (a.probeRect, a.candRect),
+                    ProbeOverlap = probeOverlap,
+                    CandOverlap = candOverlap
+                };
+            })
+            .Where(r => r != null)
+            .OrderByDescending(r => r!.Score)
+            .Select(x => (x.Score, x.Anchor, x.ProbeOverlap, x.CandOverlap))
+            .FirstOrDefault();
 
-            return (bestOverlapScore, bestAnchor, bestProbeOverlap, bestCandOverlap);
-        }
-
-
-
-            public void Test()
+        public void Test()
         {
             string probePath = "zeena5.bmp";
             string candidatePath = "zeena7.bmp";
@@ -418,5 +389,11 @@ namespace HurryAppPleaseWork
             Cv2.Rectangle(colorMat, r, color, 2);
             Cv2.ImWrite(outPath, colorMat);
         }
+    }
+
+    public static class FingerPrintTemplateAccessor
+    {
+        [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "Minutiae")]
+        public static extern Array GetMinutiae(FingerprintTemplate template);
     }
 }

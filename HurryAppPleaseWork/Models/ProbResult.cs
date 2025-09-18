@@ -12,14 +12,7 @@ namespace HurryAppPleaseWork.Models
     public class ProbRectTemplate
     {
         public int Id { get; set; }
-        public RectRecord Rect { get; set; }
+        public Rect Rect { get; set; }
         public byte[] Template { get; set; }
-    }
-
-    public record RectRecord(int X, int Y, int Width, int Height)
-    {
-        public Rect ToRectangle() => new(this.X, Y, Width, Height);
-
-        public static RectRecord FromRectangle(Rect rect) => new(rect.X, rect.Y, rect.Width, rect.Height);
     }
 }
