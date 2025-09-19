@@ -18,7 +18,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(builder.Configuration.GetConnectionString("Database")));
 builder.Services.AddOpenApi();
-
+builder.Services.AddCors();
 builder.Services.AddSingleton<FingerPrintStore>();
 
 var app = builder.Build();
