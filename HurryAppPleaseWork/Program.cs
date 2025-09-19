@@ -39,7 +39,7 @@ app.MapPost("/register", async Task<IResult> (AppDbContext db, IFormFile file, [
 
     var src = File.ReadAllBytes(tempPath);
     var template = new FingerprintTemplate(new FingerprintImage(src));
-    var minitua = FingerPrintTemplateAccessor.GetMinutiae(template);
+    //var minitua = FingerPrintTemplateAccessor.GetMinutiae(template);
     // Process the fingerprint image
     var prob = FingerPrintMatcher.LoadImageAndStorePoints(tempPath, username);
 
