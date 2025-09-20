@@ -1,9 +1,7 @@
-﻿using HurryAppPleaseWork.Models;
-using OpenCvSharp;
+﻿using OpenCvSharp;
 using SourceAFIS;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 
 namespace HurryAppPleaseWork
 {
@@ -32,28 +30,6 @@ namespace HurryAppPleaseWork
             var candRects = SelectRoisByKeypoints(candGray, roiSize, maxRois);
 
             return (candGray, BuildTemplates(candGray, candRects, 500));
-        }
-
-        public static ProbResult LoadImageAndStorePoints(string path, string username)
-        {
-            using Mat imagegray = LoadAndClahe(path);
-
-            int roiSize = 100;
-            int maxRois = 128;
-
-            var probeRects = SelectRoisByKeypoints(imagegray, roiSize, maxRois);
-
-            var probeTemplates = BuildTemplates(imagegray, probeRects, 500);
-
-            byte[] imageBytes = MatToBytes(imagegray);
-
-            return new ProbResult
-            {
-                //TODO 
-                //Username = username,
-                ImageMatrix = imageBytes,
-                Templates = [.. probeTemplates.Select(x => new ProbRectTemplate { Rect = x.rect, Template = x.template.ToByteArray() })],
-            };
         }
 
         public static List<(Rect Rect, FingerprintTemplate Template)> GetRectanglesAndTemplates(Mat mat)
@@ -214,20 +190,23 @@ namespace HurryAppPleaseWork
 
         }
         // ---------- Helpers ----------
-        public static Mat Clahe(Mat src)
+        public static Mat Clahe(in Mat src)
         {
-            //var src = Cv2.ImRead(path, ImreadModes.Color);
-            Mat gray = new();
+            using var gray = new Mat();
             Cv2.CvtColor(src, gray, ColorConversionCodes.BGR2GRAY);
+
             using var clahe = Cv2.CreateCLAHE(clipLimit: 30, tileGridSize: new Size(16, 16));
-            Mat dst = new();
+            var dst = new Mat();
             clahe.Apply(gray, dst);
+
             if (dst.Width != WIDTH || dst.Height != HEIGHT)
+            {
                 Cv2.Resize(dst, dst, new Size(WIDTH, HEIGHT));
-            src.Dispose();
-            gray.Dispose();
+            }
+
             return dst;
         }
+
         static Mat LoadAndClahe(string path)
         {
             var src = Cv2.ImRead(path, ImreadModes.Color);
@@ -246,46 +225,45 @@ namespace HurryAppPleaseWork
         static List<Rect> SelectRoisByKeypoints(Mat gray, int roiSize, int maxRois)
         {
             //todo improve this
-            var rects = new List<Rect>();
+            var rects = new List<Rect>(maxRois);
 
             // Simple ORB detector
             using var orb = ORB.Create(nFeatures: 1000, fastThreshold: 5);
             var kps = orb.Detect(gray);
-            if (kps == null || kps.Length == 0)
-                return SelectRoisByGrid(gray, roiSize, maxRois, stride: Math.Max(roiSize / 2, 20));
+            if (kps == null || kps.Length == 0) return SelectRoisByGrid(gray, roiSize, maxRois, stride: Math.Max(roiSize / 2, 20));
 
             int half = roiSize / 2;
             int imgW = gray.Width;
             int imgH = gray.Height;
 
             // Accept keypoints by response; skip those whose centered ROI would go out of bounds
-            foreach (var kp in kps.OrderByDescending(k => k.Response))
-            {
-                if (rects.Count >= maxRois) break;
 
-                int cx = (int)Math.Round(kp.Pt.X);
-                int cy = (int)Math.Round(kp.Pt.Y);
-
-                // Without clamping: skip if ROI would be out of image bounds
-                if (cx - half < 0 || cy - half < 0 || cx + half > imgW || cy + half > imgH)
-                    continue;
-
-                rects.Add(new Rect(cx - half, cy - half, roiSize, roiSize));
-            }
+            rects = kps
+                .OrderByDescending(k => k.Response)
+                .Select(k =>
+                {
+                    int cx = (int)Math.Round(k.Pt.X);
+                    int cy = (int)Math.Round(k.Pt.Y);
+                    return new { Kp = k, Cx = cx, Cy = cy };
+                })
+                .Where(x => x.Cx - half >= 0 && x.Cy - half >= 0 && x.Cx + half <= imgW && x.Cy + half <= imgH)
+                .Take(maxRois)
+                .Select(x => new Rect(x.Cx - half, x.Cy - half, roiSize, roiSize))
+                .ToList();
 
             // Fallback grid (deterministic) to fill remaining slots
             if (rects.Count < maxRois)
             {
                 int stride = Math.Max(roiSize / 2, 20);
                 var grid = SelectRoisByGrid(gray, roiSize, maxRois - rects.Count, stride);
-                foreach (var r in grid)
-                {
-                    if (!rects.Any(existing => RectsOverlap(existing, r)))
-                    {
-                        rects.Add(r);
-                        if (rects.Count >= maxRois) break;
-                    }
-                }
+                int needed = Math.Max(0, maxRois - rects.Count);
+
+                var toAdd = grid
+                    .Where(r => rects.All(existing => !existing.IntersectsWith(r)))
+                    .Take(needed)
+                    .ToList();
+
+                rects.AddRange(toAdd);
             }
 
             return rects;
@@ -303,24 +281,11 @@ namespace HurryAppPleaseWork
             }
             return rects;
         }
-
-        // static Rect CenterRect(int cx, int cy, int size, int imgW, int imgH)
-        // {
-        //     int x = Math.Clamp(cx - size / 2, 0, imgW - size);
-        //     int y = Math.Clamp(cy - size / 2, 0, imgH - size);
-        //     return new Rect(x, y, size, size);
-        // }
-
-        static bool RectsOverlap(Rect a, Rect b)
-        {
-            return a.X < b.X + b.Width && a.X + a.Width > b.X &&
-                   a.Y < b.Y + b.Height && a.Y + a.Height > b.Y;
-        }
-
         static List<(Rect rect, FingerprintTemplate template)> BuildTemplates(Mat grayImage, List<Rect> rects, int dpi)
         {
-            var list = new List<(Rect, FingerprintTemplate)>(rects.Count);
-            foreach (var r in rects)
+            var results = new ConcurrentBag<(Rect, FingerprintTemplate)>();
+
+            Parallel.ForEach(rects, r =>
             {
                 try
                 {
@@ -328,14 +293,15 @@ namespace HurryAppPleaseWork
                     Cv2.ImEncode(".bmp", roi, out byte[] bmp);
                     var fi = new FingerprintImage(bmp, new FingerprintImageOptions { Dpi = dpi });
                     var tpl = new FingerprintTemplate(fi);
-                    list.Add((r, tpl));
+                    results.Add((r, tpl));
                 }
                 catch
                 {
-                    // skip
+                    // skip failures
                 }
-            }
-            return list;
+            });
+
+            return results.ToList();
         }
 
         // Find top-K anchor ROI pairs by matching all probe×candidate ROI templates
@@ -400,11 +366,5 @@ namespace HurryAppPleaseWork
             Cv2.Rectangle(colorMat, r, color, 2);
             Cv2.ImWrite(outPath, colorMat);
         }
-    }
-
-    public static class FingerPrintTemplateAccessor
-    {
-        [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "Minutiae")]
-        public static extern Array GetMinutiae(FingerprintTemplate template);
     }
 }

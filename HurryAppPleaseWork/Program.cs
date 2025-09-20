@@ -91,25 +91,26 @@ app.MapGet("/user/{id:int}", async Task<Results<Ok<UserRegisterResponse>, NotFou
         user.Username,
         user.FullName,
         user.CreatedAt,
-        user.ImageMatrix,
+        user.ImageMatrix ?? [],
         new FingerprintTemplate(new FingerprintImage(user.ImageMatrix)).Minutiae.Select(x => new MinutiaRecord(new PositionRecord(x.Position.X, x.Position.Y), x.Direction, x.Type)).ToArray()
     ));
 });
 
-
-
 app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (AppDbContext db, FingerPrintStore store, IFormFile file) =>
 {
-    if (file == null)
-        return TypedResults.BadRequest("File or username is missing.");
+    if (file == null) return TypedResults.BadRequest("File or username is missing.");
 
-    // Save the uploaded file temporarily
-    string tempPath = Path.GetTempFileName();
-    await using (var stream = File.Create(tempPath))
-    {
-        await file.CopyToAsync(stream);
-    }
-    var test = FingerPrintMatcher.GenerateRectsAndTemplate(tempPath);
+    using var ms = new MemoryStream();
+    await file.CopyToAsync(ms);
+    byte[] fileBytes = ms.ToArray();
+
+    using var image = Cv2.ImDecode(fileBytes, ImreadModes.Color);
+
+    using Mat imagegray = FingerPrintMatcher.Clahe(image);
+
+    fileBytes = FingerPrintMatcher.MatToBytes(imagegray);
+
+    var templates = FingerPrintMatcher.GetRectanglesAndTemplates(imagegray);
 
     if (store.items.Count == 0)
     {
@@ -142,22 +143,20 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
             User = user,
             Anchors = FingerPrintMatcher
                 .FindTopAnchors(
-                    test.templates,
+                    templates,
                     user.Templates.Select(x => (rect: x.Rect, template: x.Template)).ToList()
                 )
                 .Where(a => a.score >= 20)
                 .ToList()
         })
-        .Where(x => x.Anchors.Any()) // skip users with no anchors
+        .Where(x => x.Anchors.Count != 0)
         .Select(x => new
         {
             x.User,
-            BestOverlap = FingerPrintMatcher.FindBestOverlap(x.Anchors, test.mat, x.User.Image, 500)
+            BestOverlap = FingerPrintMatcher.FindBestOverlap(x.Anchors, imagegray, x.User.Image, 500)
         })
         .OrderByDescending(x => x.BestOverlap.bestScore)
         .FirstOrDefault();
-
-    File.Delete(tempPath);
 
     if (bestMatch != null)
     {
