@@ -8,5 +8,6 @@
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public ICollection<ProbResult> Results { get; set; } = [];
+        public ICollection<CheckIn> CheckIns { get; set; } = [];
     }
 }

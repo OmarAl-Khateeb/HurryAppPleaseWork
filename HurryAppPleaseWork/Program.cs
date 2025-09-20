@@ -80,7 +80,8 @@ app.MapGet("/user/{id:int}", async Task<Results<Ok<UserRegisterResponse>, NotFou
             u.Username,
             u.FullName,
             u.CreatedAt,
-            ImageMatrix = u.Results.Select(r => r.ImageMatrix).FirstOrDefault()
+            ImageMatrix = u.Results.Select(r => r.ImageMatrix).FirstOrDefault(),
+            LastCheckIn = u.CheckIns.OrderByDescending(x => x.CreatedAt).Select(x => x.CreatedAt).FirstOrDefault(),
         })
         .FirstOrDefaultAsync();
 
@@ -92,7 +93,8 @@ app.MapGet("/user/{id:int}", async Task<Results<Ok<UserRegisterResponse>, NotFou
         user.FullName,
         user.CreatedAt,
         user.ImageMatrix ?? [],
-        new FingerprintTemplate(new FingerprintImage(user.ImageMatrix)).Minutiae.Select(x => new MinutiaRecord(new PositionRecord(x.Position.X, x.Position.Y), x.Direction, x.Type)).ToArray()
+        new FingerprintTemplate(new FingerprintImage(user.ImageMatrix)).Minutiae.Select(x => new MinutiaRecord(new PositionRecord(x.Position.X, x.Position.Y), x.Direction, x.Type)).ToArray(),
+        user.LastCheckIn
     ));
 });
 
@@ -230,7 +232,7 @@ public class FingerPrintStore
 
 public record UserRecord(int Id, string Username);
 
-public record UserRegisterResponse(int Id, string Username, string FullName, DateTime CreatedAt, byte[] Image, MinutiaRecord[] Minutias);
+public record UserRegisterResponse(int Id, string Username, string FullName, DateTime CreatedAt, byte[] Image, MinutiaRecord[] Minutias, DateTime? LastCheckIn = null);
 
 public record PositionRecord(short X, short Y);
 
