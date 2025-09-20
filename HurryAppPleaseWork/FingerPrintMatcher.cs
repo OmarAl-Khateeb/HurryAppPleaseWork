@@ -224,46 +224,32 @@ namespace HurryAppPleaseWork
 
         static List<Rect> SelectRoisByKeypoints(Mat gray, int roiSize, int maxRois)
         {
-            //todo improve this
             var rects = new List<Rect>(maxRois);
 
             // Simple ORB detector
             using var orb = ORB.Create(nFeatures: 1000, fastThreshold: 5);
+
             var kps = orb.Detect(gray);
-            if (kps == null || kps.Length == 0) return SelectRoisByGrid(gray, roiSize, maxRois, stride: Math.Max(roiSize / 2, 20));
+
+            if (kps == null || kps.Length == 0)
+                return SelectRoisByGrid(gray, roiSize, maxRois, stride: Math.Max(roiSize / 2, 20));
 
             int half = roiSize / 2;
             int imgW = gray.Width;
             int imgH = gray.Height;
 
             // Accept keypoints by response; skip those whose centered ROI would go out of bounds
-
-            rects = kps
-                .OrderByDescending(k => k.Response)
-                .Select(k =>
-                {
-                    int cx = (int)Math.Round(k.Pt.X);
-                    int cy = (int)Math.Round(k.Pt.Y);
-                    return new { Kp = k, Cx = cx, Cy = cy };
-                })
-                .Where(x => x.Cx - half >= 0 && x.Cy - half >= 0 && x.Cx + half <= imgW && x.Cy + half <= imgH)
-                .Take(maxRois)
-                .Select(x => new Rect(x.Cx - half, x.Cy - half, roiSize, roiSize))
-                .ToList();
-
-            // Fallback grid (deterministic) to fill remaining slots
-            if (rects.Count < maxRois)
+            foreach (var kp in kps.OrderByDescending(k => k.Response))
             {
-                int stride = Math.Max(roiSize / 2, 20);
-                var grid = SelectRoisByGrid(gray, roiSize, maxRois - rects.Count, stride);
-                int needed = Math.Max(0, maxRois - rects.Count);
+                if (rects.Count >= maxRois) break;
 
-                var toAdd = grid
-                    .Where(r => rects.All(existing => !existing.IntersectsWith(r)))
-                    .Take(needed)
-                    .ToList();
+                int cx = (int)Math.Round(kp.Pt.X);
+                int cy = (int)Math.Round(kp.Pt.Y);
 
-                rects.AddRange(toAdd);
+                // Without clamping: skip if ROI would be out of image bounds
+                if (cx - half < 0 || cy - half < 0 || cx + half > imgW || cy + half > imgH) continue;
+
+                rects.Add(new Rect(cx - half, cy - half, roiSize, roiSize));
             }
 
             return rects;
