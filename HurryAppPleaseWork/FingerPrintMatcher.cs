@@ -49,11 +49,20 @@ namespace HurryAppPleaseWork
 
             return new ProbResult
             {
-                Username = username,
+                //TODO 
+                //Username = username,
                 ImageMatrix = imageBytes,
                 Templates = [.. probeTemplates.Select(x => new ProbRectTemplate { Rect = x.rect, Template = x.template.ToByteArray() })],
             };
         }
+
+        public static List<(Rect Rect, FingerprintTemplate Template)> GetRectanglesAndTemplates(Mat mat)
+        {
+            var probeRects = SelectRoisByKeypoints(mat, roiSize: 100, maxRois: 128);
+
+            return BuildTemplates(mat, probeRects, dpi: 500);
+        }
+
         public static (double bestScore, (Rect probeRect, Rect candRect) bestAnchor, Rect bestProbeOverlap, Rect bestCandOverlap)
         FindBestOverlap(List<(Rect probeRect, Rect candRect, double score)> anchors, Mat probeGray, Mat candGray, int dpi, double minAnchorScore = 0)
             => anchors
@@ -77,6 +86,7 @@ namespace HurryAppPleaseWork
 
                 var probeTpl = new FingerprintTemplate(
                     new FingerprintImage(probeBmp, new FingerprintImageOptions { Dpi = dpi }));
+
                 var candTpl = new FingerprintTemplate(
                     new FingerprintImage(candBmp, new FingerprintImageOptions { Dpi = dpi }));
 
@@ -204,7 +214,7 @@ namespace HurryAppPleaseWork
 
         }
         // ---------- Helpers ----------
-        static Mat Clahe(Mat src)
+        public static Mat Clahe(Mat src)
         {
             //var src = Cv2.ImRead(path, ImreadModes.Color);
             Mat gray = new();
@@ -235,6 +245,7 @@ namespace HurryAppPleaseWork
 
         static List<Rect> SelectRoisByKeypoints(Mat gray, int roiSize, int maxRois)
         {
+            //todo improve this
             var rects = new List<Rect>();
 
             // Simple ORB detector

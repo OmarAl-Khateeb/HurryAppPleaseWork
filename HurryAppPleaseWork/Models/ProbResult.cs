@@ -5,9 +5,10 @@ namespace HurryAppPleaseWork.Models
     public class ProbResult
     {
         public int Id { get; set; }
-        public string Username { get; set; } = default!;
+        public int UserId { get; set; }
+        public User User { get; set; }
         public byte[] ImageMatrix { get; set; } = default!;
-        public ICollection<ProbRectTemplate> Templates { get; set; }
+        public ICollection<ProbRectTemplate> Templates { get; set; } = [];
     }
     public class ProbRectTemplate
     {

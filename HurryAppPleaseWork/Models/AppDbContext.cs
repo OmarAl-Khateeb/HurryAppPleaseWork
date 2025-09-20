@@ -8,6 +8,9 @@ namespace HurryAppPleaseWork.Models
         public DbSet<ProbResult> Results { get; set; }
         public DbSet<ProbRectTemplate> ResultsTemplate { get; set; }
 
+        public DbSet<User> Users { get; set; }
+        public DbSet<CheckIn> CheckIns { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<ProbRectTemplate>().ComplexProperty<Rect>(e => e.Rect, r =>
