@@ -98,6 +98,88 @@ app.MapGet("/user/{id:int}", async Task<Results<Ok<UserRegisterResponse>, NotFou
     ));
 });
 
+app.MapPut("/user/{id:int}", async Task<Results<Ok<UserListItem>, NotFound<string>>> (AppDbContext db, int id, UserUpdateRequest update) =>
+{
+    var user = await db.Users.FindAsync(id);
+    if (user == null) return TypedResults.NotFound("User not found.");
+
+    if (!string.IsNullOrWhiteSpace(update.Username))
+        user.Username = update.Username;
+
+    if (!string.IsNullOrWhiteSpace(update.FullName))
+        user.FullName = update.FullName;
+
+    await db.SaveChangesAsync();
+
+    return TypedResults.Ok(new UserListItem(
+        user.Id,
+        user.Username,
+        user.FullName,
+        user.CreatedAt,
+        user.CheckIns.Count,
+        user.CheckIns.OrderByDescending(c => c.CreatedAt)
+            .Select(c => c.CreatedAt)
+            .FirstOrDefault()
+    ));
+});
+
+app.MapDelete("/user/{id:int}", async Task<Results<NotFound<string>, NoContent>> (AppDbContext db, int id) =>
+{
+    var user = await db.Users.FindAsync(id);
+    if (user == null) return TypedResults.NotFound("User not found.");
+
+    db.Users.Remove(user);
+    await db.SaveChangesAsync();
+
+    return TypedResults.NoContent();
+});
+
+app.MapGet("/user", async Task<Results<Ok<ListResponse<UserListItem>>, BadRequest>> (AppDbContext db, int page = 1, int pageSize = 20) =>
+{
+    var query = db.Users;
+    var count = await query.CountAsync();
+    var users = await query
+        .OrderBy(u => u.Id)
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .Select(u => new UserListItem(
+            u.Id,
+            u.Username,
+            u.FullName,
+            u.CreatedAt,
+            u.CheckIns.Count,
+            u.CheckIns.OrderByDescending(c => c.CreatedAt).Select(c => c.CreatedAt).FirstOrDefault()
+        ))
+        .ToListAsync();
+
+    return TypedResults.Ok(new ListResponse<UserListItem>(users, count));
+});
+
+app.MapGet("/checkin/{userId:int}", async Task<Results<Ok<ListResponse<CheckInItem>>, NotFound<string>>>
+    (AppDbContext db, int userId, int page = 1, int pageSize = 20) =>
+{
+    var totalCount = await db.CheckIns.CountAsync(c => c.UserId == userId);
+
+    if (totalCount == 0)
+        return TypedResults.NotFound("No check-ins found for this user.");
+
+    var checkIns = await db.CheckIns
+        .Where(c => c.UserId == userId)
+        .OrderByDescending(c => c.CreatedAt)
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .Select(c => new CheckInItem(
+            c.Id,
+            c.CreatedAt,
+            new ProbResultRecord(c.ProbResult.Id, c.ProbResult.ImageMatrix),
+            c.ResultScore,
+            c.ImageMatrix
+        ))
+        .ToListAsync();
+
+    return TypedResults.Ok(new ListResponse<CheckInItem>(checkIns, totalCount));
+});
+
 app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (AppDbContext db, FingerPrintStore store, IFormFile file) =>
 {
     if (file == null) return TypedResults.BadRequest("File or username is missing.");
@@ -206,18 +288,6 @@ app.MapScalarApiReference(options => options.Servers = []);
 
 app.Run();
 
-public class RegisterRequest
-{
-    public IFormFile File { get; set; } = default!;
-    public string Username { get; set; } = string.Empty;
-}
-
-public class RegisterFolderRequest
-{
-    public string FolderPath { get; set; } = string.Empty;
-    public string Username { get; set; } = string.Empty;
-}
-
 internal record ScoreResult(UserRecord User, double Score, double Certainty, string MatchingTime, byte[] Image);
 
 public record FingerprintList(Rect Rect, FingerprintTemplate Template);
@@ -233,7 +303,16 @@ public class FingerPrintStore
 public record UserRecord(int Id, string Username);
 
 public record UserRegisterResponse(int Id, string Username, string FullName, DateTime CreatedAt, byte[] Image, MinutiaRecord[] Minutias, DateTime? LastCheckIn = null);
+public record UserListItem(int Id, string Username, string FullName, DateTime CreatedAt, int CheckInCount, DateTime? LastCheckIn = null);
+
+public record ListResponse<T>(List<T> Items, int totalCount);
 
 public record PositionRecord(short X, short Y);
 
 public record MinutiaRecord(PositionRecord Postion, float Direction, MinutiaType Type);
+
+public record UserUpdateRequest(string? Username = null, string? FullName = null);
+
+public record CheckInItem(int Id, DateTime CreatedAt, ProbResultRecord ProbResult, double ResultScore, byte[] Image);
+
+public record ProbResultRecord(int Id, byte[] Image);
