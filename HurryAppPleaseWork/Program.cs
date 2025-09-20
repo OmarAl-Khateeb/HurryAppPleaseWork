@@ -128,6 +128,10 @@ app.MapDelete("/user/{id:int}", async Task<Results<NotFound<string>, NoContent>>
     var user = await db.Users.FindAsync(id);
     if (user == null) return TypedResults.NotFound("User not found.");
 
+    await db.CheckIns.Where(x => x.UserId == id).ExecuteDeleteAsync();
+    await db.ResultsTemplate.Where(x => x.ProbResult.UserId == id).ExecuteDeleteAsync();
+    await db.Results.Where(x => x.UserId == id).ExecuteDeleteAsync();
+
     db.Users.Remove(user);
     await db.SaveChangesAsync();
 

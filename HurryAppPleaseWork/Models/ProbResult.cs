@@ -15,5 +15,8 @@ namespace HurryAppPleaseWork.Models
         public int Id { get; set; }
         public Rect Rect { get; set; }
         public byte[] Template { get; set; }
+
+        public ProbResult ProbResult { get; set; } = default!;
+        public int ProbResultId { get; set; }
     }
 }
