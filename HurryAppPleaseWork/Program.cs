@@ -118,6 +118,7 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
             .AsNoTracking()
             .Select(x => new
             {
+                x.Id,
                 User = new UserRecord(x.User.Id, x.User.Username),
                 x.ImageMatrix,
                 Templates = x.Templates.Select(t => new { t.Rect, t.Template }).ToList()
@@ -127,8 +128,10 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
         store.items = raw
             .AsParallel()
             .Select(x => new UserFingerPrintList(
+                x.Id,
                 x.User,
                 FingerPrintMatcher.MatFromBytes(x.ImageMatrix, ImreadModes.Unchanged),
+                x.ImageMatrix,
                 x.Templates.Select(t => new FingerprintList(t.Rect, new FingerprintTemplate(t.Template))).ToList()
             ))
             .ToList();
@@ -153,18 +156,35 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
         .Select(x => new
         {
             x.User,
-            BestOverlap = FingerPrintMatcher.FindBestOverlap(x.Anchors, imagegray, x.User.Image, 500)
+            BestOverlap = FingerPrintMatcher.FindBestOverlap(x.Anchors, imagegray, x.User.Image, 500)//this can be optimized
         })
         .OrderByDescending(x => x.BestOverlap.bestScore)
         .FirstOrDefault();
 
+
+    if (bestMatch != null)
+    {
+        var checkin = new CheckIn
+        {
+            ProbResultId = bestMatch.User.Id,
+            ImageMatrix = fileBytes,
+            UserId = bestMatch.User.User.Id,
+            ResultScore = bestMatch.BestOverlap.bestScore
+        };
+
+        db.CheckIns.Add(checkin);
+
+        await db.SaveChangesAsync();
+    }
+
     if (bestMatch != null)
     {
         return TypedResults.Ok(new ScoreResult(
-            bestMatch.User.User.Username,
+            bestMatch.User.User,
             bestMatch.BestOverlap.bestScore,
             ScoreToCertainty(bestMatch.BestOverlap.bestScore),
-            $"{Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds}ms"));
+            $"{Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds}ms",
+            bestMatch.User.ImageMatrix));
     }
     return TypedResults.BadRequest("well");
 }).DisableAntiforgery();
@@ -196,11 +216,11 @@ public class RegisterFolderRequest
     public string Username { get; set; } = string.Empty;
 }
 
-internal record ScoreResult(string Username, double Score, double Certainty, string MatchingTime);
+internal record ScoreResult(UserRecord User, double Score, double Certainty, string MatchingTime, byte[] Image);
 
 public record FingerprintList(Rect Rect, FingerprintTemplate Template);
 
-public record UserFingerPrintList(UserRecord User, Mat Image, List<FingerprintList> Templates);
+public record UserFingerPrintList(int Id, UserRecord User, Mat Image, byte[] ImageMatrix, List<FingerprintList> Templates);
 
 
 public class FingerPrintStore
