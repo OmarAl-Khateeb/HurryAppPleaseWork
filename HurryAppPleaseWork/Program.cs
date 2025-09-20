@@ -197,6 +197,20 @@ app.MapGet("/checkin/{userId:int}", async Task<Results<Ok<ListResponse<CheckInIt
     return TypedResults.Ok(new ListResponse<CheckInItem>(checkIns, totalCount));
 }).WithTags("checkin");
 
+app.MapGet("/checkin-image/{id:int}", async Task<Results<FileContentHttpResult, NotFound>> (AppDbContext db, int id) =>
+{
+    var probResult = await db.CheckIns
+        .Where(p => p.Id == id)
+        .Select(p => p.ImageMatrix)
+        .FirstOrDefaultAsync();
+
+    if (probResult == null || probResult.Length == 0)
+        return TypedResults.NotFound();
+
+    // Adjust content type depending on what you stored (e.g., "image/bmp" or "image/png")
+    return TypedResults.File(probResult, "image/bmp");
+}).WithTags("checkin");
+
 app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (AppDbContext db, FingerPrintStore store, IFormFile file) =>
 {
     if (file == null) return TypedResults.BadRequest("File or username is missing.");
