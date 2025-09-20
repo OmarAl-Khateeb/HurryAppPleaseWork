@@ -8,6 +8,8 @@ using Scalar.AspNetCore;
 using SourceAFIS;
 using SourceAFIS.Engine.Features;
 using System.Diagnostics;
+using System.Net.WebSockets;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +30,11 @@ builder.Services.AddCors();
 builder.Services.AddSingleton<FingerPrintStore>();
 
 var app = builder.Build();
+
+WebSocket? scannerSocket = null;
+WebSocket? receiverSocket = null;
+
+app.UseWebSockets();
 
 app.UseHttpsRedirection();
 
@@ -348,6 +355,92 @@ app.MapDelete("/fingerprint/{id:int}", async Task<Results<NoContent, NotFound<st
 
     return TypedResults.NoContent();
 }).WithTags("fingerprint");
+
+// Scanner connects here
+app.Map("/ws/scanner", async (HttpContext ctx) =>
+{
+    if (ctx.WebSockets.IsWebSocketRequest)
+    {
+        var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+        scannerSocket = ws;
+        Console.WriteLine("Scanner connected.");
+
+        var buffer = new byte[1024 * 1024];
+        while (ws.State == WebSocketState.Open)
+        {
+            var result = await ws.ReceiveAsync(buffer, CancellationToken.None);
+            if (result.MessageType == WebSocketMessageType.Binary)
+            {
+                Console.WriteLine($"Received image ({result.Count} bytes) from scanner.");
+
+                if (receiverSocket != null && receiverSocket.State == WebSocketState.Open)
+                {
+                    await receiverSocket.SendAsync(
+                        buffer.AsMemory(0, result.Count),
+                        WebSocketMessageType.Binary,
+                        true,
+                        CancellationToken.None
+                    );
+                    Console.WriteLine("Forwarded image to receiver.");
+                }
+            }
+        }
+    }
+    else
+    {
+        ctx.Response.StatusCode = 400;
+    }
+});
+
+app.Map("/ws/receiver", async (HttpContext ctx) =>
+{
+    if (ctx.WebSockets.IsWebSocketRequest)
+    {
+        var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+        receiverSocket = ws;
+        Console.WriteLine("Receiver connected.");
+
+        var buffer = new byte[1024];
+        while (ws.State == WebSocketState.Open)
+        {
+            var result = await ws.ReceiveAsync(buffer, CancellationToken.None);
+            if (result.MessageType == WebSocketMessageType.Text)
+            {
+                var msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                Console.WriteLine($"Receiver says: {msg}");
+
+                if (msg == "START_SCAN" && scannerSocket != null && scannerSocket.State == WebSocketState.Open)
+                {
+                    await scannerSocket.SendAsync(
+                        Encoding.UTF8.GetBytes("START_SCAN"),
+                        WebSocketMessageType.Text,
+                        true,
+                        CancellationToken.None
+                    );
+                    Console.WriteLine("Sent START_SCAN to scanner.");
+                }
+            }
+        }
+    }
+    else
+    {
+        ctx.Response.StatusCode = 400;
+    }
+});
+
+app.MapGet("/fingerprint/{id:int}", async Task<Results<FileContentHttpResult, NotFound>> (AppDbContext db, int id) =>
+{
+    var probResult = await db.Results
+        .Where(p => p.Id == id)
+        .Select(p => p.ImageMatrix)
+        .FirstOrDefaultAsync();
+
+    if (probResult == null || probResult.Length == 0)
+        return TypedResults.NotFound();
+
+    // Adjust content type depending on what you stored (e.g., "image/bmp" or "image/png")
+    return TypedResults.File(probResult, "image/bmp");
+});
 
 
 static double ScoreToCertainty(double score, double S0 = 80, double k = 0.02)
