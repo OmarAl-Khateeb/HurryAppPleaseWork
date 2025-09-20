@@ -205,6 +205,9 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
     await file.CopyToAsync(ms);
     byte[] fileBytes = ms.ToArray();
 
+    Console.WriteLine("Image data:");
+    Console.WriteLine(fileBytes);
+
     using var image = Cv2.ImDecode(fileBytes, ImreadModes.Color);
 
     using Mat imagegray = FingerPrintMatcher.Clahe(image);
