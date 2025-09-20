@@ -465,6 +465,47 @@ app.Map("/ws/receiver", async (HttpContext ctx) =>
     }
 });
 
+app.MapPost("/test", async Task<Results<FileContentHttpResult, BadRequest<string>>> (
+    AppDbContext db, FingerPrintStore store, IFormFile file) =>
+{
+    if (file == null) return TypedResults.BadRequest("File or username is missing.");
+
+    using var ms = new MemoryStream();
+    await file.CopyToAsync(ms);
+    byte[] fileBytes = ms.ToArray();
+
+    if (fileBytes.Length == 0) return TypedResults.BadRequest("Empty file");
+
+    using var image = Cv2.ImDecode(fileBytes, ImreadModes.Color);
+
+    using Mat imagegray = FingerPrintMatcher.Clahe(image);
+
+    using Mat imageColor = new Mat();
+    Cv2.CvtColor(imagegray, imageColor, ColorConversionCodes.GRAY2BGR);
+
+    fileBytes = FingerPrintMatcher.MatToBytes(imagegray);
+    var template = new FingerprintTemplate(new FingerprintImage(fileBytes));
+
+    foreach (var m in template.Minutiae)
+    {
+        OpenCvSharp.Scalar color = m.Type switch
+        {
+            MinutiaType.Ending => OpenCvSharp.Scalar.Green,
+            MinutiaType.Bifurcation => OpenCvSharp.Scalar.Blue,
+            _ => OpenCvSharp.Scalar.Red
+        };
+
+        Cv2.Circle(imageColor, new Point(m.Position.X, m.Position.Y), 3, color, -1);
+    }
+
+    // Encode result image to PNG
+    byte[] outputBytes = imageColor.ImEncode(".png");
+
+    return TypedResults.File(outputBytes, "image/png");
+}).DisableAntiforgery();
+
+
+
 app.MapGet("/fingerprint/{id:int}", async Task<Results<FileContentHttpResult, NotFound>> (AppDbContext db, int id) =>
 {
     var probResult = await db.Results

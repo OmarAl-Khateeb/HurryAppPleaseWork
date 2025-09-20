@@ -199,10 +199,11 @@ namespace HurryAppPleaseWork
             var dst = new Mat();
             clahe.Apply(gray, dst);
 
-            if (dst.Width != WIDTH || dst.Height != HEIGHT)
-            {
-                Cv2.Resize(dst, dst, new Size(WIDTH, HEIGHT));
-            }
+            //if (dst.Width != WIDTH || dst.Height != HEIGHT)
+            //{
+            //    Cv2.Resize(dst, dst, new Size(WIDTH, HEIGHT));
+            //}
+            //add crop and resize based on wdith or something
 
             return dst;
         }
