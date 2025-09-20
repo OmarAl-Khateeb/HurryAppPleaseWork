@@ -70,6 +70,33 @@ app.MapPost("/register", async Task<Results<Ok<UserRegisterResponse>, BadRequest
 
 }).DisableAntiforgery();
 
+app.MapGet("/user/{id:int}", async Task<Results<Ok<UserRegisterResponse>, NotFound<string>>> (AppDbContext db, int id) =>
+{
+    var user = await db.Users
+        .Where(u => u.Id == id)
+        .Select(u => new
+        {
+            u.Id,
+            u.Username,
+            u.FullName,
+            u.CreatedAt,
+            ImageMatrix = u.Results.Select(r => r.ImageMatrix).FirstOrDefault()
+        })
+        .FirstOrDefaultAsync();
+
+    if (user == null) return TypedResults.NotFound("User not found.");
+
+    return TypedResults.Ok(new UserRegisterResponse(
+        user.Id,
+        user.Username,
+        user.FullName,
+        user.CreatedAt,
+        user.ImageMatrix,
+        new FingerprintTemplate(new FingerprintImage(user.ImageMatrix)).Minutiae.Select(x => new MinutiaRecord(new PositionRecord(x.Position.X, x.Position.Y), x.Direction, x.Type)).ToArray()
+    ));
+});
+
+
 
 app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (AppDbContext db, FingerPrintStore store, IFormFile file) =>
 {
