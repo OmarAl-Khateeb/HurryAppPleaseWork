@@ -297,7 +297,7 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
         await db.SaveChangesAsync();
 
 
-        return TypedResults.BadRequest(checkin.Id);
+        return TypedResults.BadRequest(checkin.Id.ToString());
     }
 
     if (bestMatch != null)
