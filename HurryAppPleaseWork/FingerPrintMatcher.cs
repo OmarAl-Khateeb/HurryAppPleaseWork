@@ -239,7 +239,7 @@ namespace HurryAppPleaseWork
             int imgH = gray.Height;
 
             // Accept keypoints by response; skip those whose centered ROI would go out of bounds
-            foreach (var kp in kps.OrderByDescending(k => k.Response))
+            foreach (var kp in kps.OrderByDescending(k => k.Response).Take(maxRois))
             {
                 if (rects.Count >= maxRois) break;
 
