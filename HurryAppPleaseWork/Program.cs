@@ -19,7 +19,10 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 });
 
-builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(builder.Configuration.GetConnectionString("Database")));
+builder.Services.AddDbContext<AppDbContext>(o => 
+    o.UseNpgsql(builder.Configuration.GetConnectionString("Database"))
+    .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
+
 builder.Services.AddOpenApi();
 builder.Services.AddCors();
 builder.Services.AddSingleton<FingerPrintStore>();
@@ -109,6 +112,8 @@ app.MapPut("/user/{id:int}", async Task<Results<Ok<UserListItem>, NotFound<strin
     if (!string.IsNullOrWhiteSpace(update.FullName))
         user.FullName = update.FullName;
 
+    db.Users.Update(user);
+
     await db.SaveChangesAsync();
 
     return TypedResults.Ok(new UserListItem(
@@ -133,6 +138,7 @@ app.MapDelete("/user/{id:int}", async Task<Results<NotFound<string>, NoContent>>
     await db.Results.Where(x => x.UserId == id).ExecuteDeleteAsync();
 
     db.Users.Remove(user);
+
     await db.SaveChangesAsync();
 
     return TypedResults.NoContent();
@@ -203,7 +209,6 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
     if (store.items.Count == 0)
     {
         var raw = await db.Results
-            .AsNoTracking()
             .Select(x => new
             {
                 x.Id,
@@ -276,6 +281,74 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
     }
     return TypedResults.BadRequest("well");
 }).DisableAntiforgery();
+
+app.MapGet("user/{userId:int}/fingerprint", async Task<Results<Ok<ListResponse<ProbResultRecord>>, NotFound<string>>>
+    (AppDbContext db, int userId) =>
+{
+    var probResults = await db.Results
+        .Where(p => p.UserId == userId)
+        .Select(p => new ProbResultRecord(p.Id, p.ImageMatrix))
+        .ToListAsync();
+
+    if (!probResults.Any())
+        return TypedResults.NotFound("No fingerprints found for this user.");
+
+    return TypedResults.Ok(new ListResponse<ProbResultRecord>(probResults, probResults.Count));
+});
+
+app.MapPost("user/{userId:int}/fingerprint", async Task<Results<Created<ProbResultRecord>, NotFound<string>, BadRequest<string>>>
+    (AppDbContext db, int userId, IFormFile file) =>
+{
+    if (file == null || file.Length == 0)
+        return TypedResults.BadRequest("No file uploaded.");
+
+    var user = await db.Users.FindAsync(userId);
+    if (user == null)
+        return TypedResults.NotFound("User not found.");
+
+    using var ms = new MemoryStream();
+    await file.CopyToAsync(ms);
+    var imageMatrix = ms.ToArray();
+
+    var image = Cv2.ImDecode(imageMatrix, ImreadModes.Color);
+
+    using Mat imagegray = FingerPrintMatcher.Clahe(image);
+
+    imageMatrix = FingerPrintMatcher.MatToBytes(imagegray);
+
+    var template = new FingerprintTemplate(new FingerprintImage(imageMatrix));
+
+    var prob = FingerPrintMatcher.GetRectanglesAndTemplates(imagegray);
+
+    var probResult = new ProbResult
+    {
+        UserId = userId,
+        ImageMatrix = imageMatrix,
+        Templates = prob.Select(x => new ProbRectTemplate { Rect = x.Rect, Template = x.Template.ToByteArray() }).ToArray()
+    };
+
+    db.Results.Add(probResult);
+    await db.SaveChangesAsync();
+
+    var response = new ProbResultRecord(probResult.Id, probResult.ImageMatrix);
+
+    return TypedResults.Created($"/fingerprint/{probResult.Id}", response);
+}).DisableAntiforgery();
+
+app.MapDelete("/fingerprint/{id:int}", async Task<Results<NoContent, NotFound<string>>>
+    (AppDbContext db, int id) =>
+{
+    var probResult = await db.Results.FindAsync(id);
+    if (probResult == null) return TypedResults.NotFound("Fingerprint not found.");
+
+    await db.ResultsTemplate.Where(x => x.ProbResultId == id).ExecuteDeleteAsync();
+
+    db.Results.Remove(probResult);
+    await db.SaveChangesAsync();
+
+    return TypedResults.NoContent();
+});
+
 
 static double ScoreToCertainty(double score, double S0 = 80, double k = 0.02)
 {
