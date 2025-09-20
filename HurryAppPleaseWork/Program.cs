@@ -282,6 +282,24 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
         await db.SaveChangesAsync();
     }
 
+    if (bestMatch is null)
+    {
+        var checkin = new CheckIn
+        {
+            ProbResultId = 1,
+            ImageMatrix = fileBytes,
+            UserId = 1,
+            ResultScore = 0
+        };
+
+        db.CheckIns.Add(checkin);
+
+        await db.SaveChangesAsync();
+
+
+        return TypedResults.BadRequest(checkin.Id);
+    }
+
     if (bestMatch != null)
     {
         return TypedResults.Ok(new ScoreResult(
