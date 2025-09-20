@@ -440,7 +440,7 @@ app.MapGet("/fingerprint/{id:int}", async Task<Results<FileContentHttpResult, No
 
     // Adjust content type depending on what you stored (e.g., "image/bmp" or "image/png")
     return TypedResults.File(probResult, "image/bmp");
-});
+}).WithTags("fingerprint");
 
 
 static double ScoreToCertainty(double score, double S0 = 80, double k = 0.02)
