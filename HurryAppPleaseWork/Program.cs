@@ -71,7 +71,7 @@ app.MapPost("/register", async Task<Results<Ok<UserRegisterResponse>, BadRequest
 
     return TypedResults.BadRequest<string>("Failed to Register");
 
-}).DisableAntiforgery();
+}).WithTags("register").DisableAntiforgery();
 
 app.MapGet("/user/{id:int}", async Task<Results<Ok<UserRegisterResponse>, NotFound<string>>> (AppDbContext db, int id) =>
 {
@@ -99,7 +99,7 @@ app.MapGet("/user/{id:int}", async Task<Results<Ok<UserRegisterResponse>, NotFou
         new FingerprintTemplate(new FingerprintImage(user.ImageMatrix)).Minutiae.Select(x => new MinutiaRecord(new PositionRecord(x.Position.X, x.Position.Y), x.Direction, x.Type)).ToArray(),
         user.LastCheckIn
     ));
-});
+}).WithTags("user");
 
 app.MapPut("/user/{id:int}", async Task<Results<Ok<UserListItem>, NotFound<string>>> (AppDbContext db, int id, UserUpdateRequest update) =>
 {
@@ -126,7 +126,7 @@ app.MapPut("/user/{id:int}", async Task<Results<Ok<UserListItem>, NotFound<strin
             .Select(c => c.CreatedAt)
             .FirstOrDefault()
     ));
-});
+}).WithTags("user");
 
 app.MapDelete("/user/{id:int}", async Task<Results<NotFound<string>, NoContent>> (AppDbContext db, int id) =>
 {
@@ -142,7 +142,7 @@ app.MapDelete("/user/{id:int}", async Task<Results<NotFound<string>, NoContent>>
     await db.SaveChangesAsync();
 
     return TypedResults.NoContent();
-});
+}).WithTags("user");
 
 app.MapGet("/user", async Task<Results<Ok<ListResponse<UserListItem>>, BadRequest>> (AppDbContext db, int page = 1, int pageSize = 20) =>
 {
@@ -163,7 +163,7 @@ app.MapGet("/user", async Task<Results<Ok<ListResponse<UserListItem>>, BadReques
         .ToListAsync();
 
     return TypedResults.Ok(new ListResponse<UserListItem>(users, count));
-});
+}).WithTags("user");
 
 app.MapGet("/checkin/{userId:int}", async Task<Results<Ok<ListResponse<CheckInItem>>, NotFound<string>>>
     (AppDbContext db, int userId, int page = 1, int pageSize = 20) =>
@@ -188,7 +188,7 @@ app.MapGet("/checkin/{userId:int}", async Task<Results<Ok<ListResponse<CheckInIt
         .ToListAsync();
 
     return TypedResults.Ok(new ListResponse<CheckInItem>(checkIns, totalCount));
-});
+}).WithTags("checkin");
 
 app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (AppDbContext db, FingerPrintStore store, IFormFile file) =>
 {
@@ -280,7 +280,7 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
             bestMatch.User.ImageMatrix));
     }
     return TypedResults.BadRequest("well");
-}).DisableAntiforgery();
+}).WithTags("match").DisableAntiforgery();
 
 app.MapGet("user/{userId:int}/fingerprint", async Task<Results<Ok<ListResponse<ProbResultRecord>>, NotFound<string>>>
     (AppDbContext db, int userId) =>
@@ -294,7 +294,7 @@ app.MapGet("user/{userId:int}/fingerprint", async Task<Results<Ok<ListResponse<P
         return TypedResults.NotFound("No fingerprints found for this user.");
 
     return TypedResults.Ok(new ListResponse<ProbResultRecord>(probResults, probResults.Count));
-});
+}).WithTags("user");
 
 app.MapPost("user/{userId:int}/fingerprint", async Task<Results<Created<ProbResultRecord>, NotFound<string>, BadRequest<string>>>
     (AppDbContext db, int userId, IFormFile file) =>
@@ -333,7 +333,7 @@ app.MapPost("user/{userId:int}/fingerprint", async Task<Results<Created<ProbResu
     var response = new ProbResultRecord(probResult.Id, probResult.ImageMatrix);
 
     return TypedResults.Created($"/fingerprint/{probResult.Id}", response);
-}).DisableAntiforgery();
+}).WithTags("user").DisableAntiforgery();
 
 app.MapDelete("/fingerprint/{id:int}", async Task<Results<NoContent, NotFound<string>>>
     (AppDbContext db, int id) =>
@@ -347,7 +347,7 @@ app.MapDelete("/fingerprint/{id:int}", async Task<Results<NoContent, NotFound<st
     await db.SaveChangesAsync();
 
     return TypedResults.NoContent();
-});
+}).WithTags("fingerprint");
 
 
 static double ScoreToCertainty(double score, double S0 = 80, double k = 0.02)
