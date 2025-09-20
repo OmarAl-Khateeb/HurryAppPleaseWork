@@ -231,8 +231,7 @@ namespace HurryAppPleaseWork
 
             var kps = orb.Detect(gray);
 
-            if (kps == null || kps.Length == 0)
-                return SelectRoisByGrid(gray, roiSize, maxRois, stride: Math.Max(roiSize / 2, 20));
+            if (kps == null || kps.Length == 0) return SelectRoisByGrid(gray, roiSize, maxRois, stride: Math.Max(roiSize / 2, 20));
 
             int half = roiSize / 2;
             int imgW = gray.Width;
@@ -241,8 +240,6 @@ namespace HurryAppPleaseWork
             // Accept keypoints by response; skip those whose centered ROI would go out of bounds
             foreach (var kp in kps.OrderByDescending(k => k.Response).Take(maxRois))
             {
-                if (rects.Count >= maxRois) break;
-
                 int cx = (int)Math.Round(kp.Pt.X);
                 int cy = (int)Math.Round(kp.Pt.Y);
 
