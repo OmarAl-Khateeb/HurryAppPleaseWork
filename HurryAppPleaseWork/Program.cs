@@ -205,6 +205,8 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
     await file.CopyToAsync(ms);
     byte[] fileBytes = ms.ToArray();
 
+    if (fileBytes.Length == 0) return TypedResults.BadRequest("Empty file");
+
     Console.WriteLine("Image data:");
     Console.WriteLine(fileBytes);
 
