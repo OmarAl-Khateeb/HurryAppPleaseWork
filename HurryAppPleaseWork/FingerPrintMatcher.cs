@@ -225,32 +225,54 @@ namespace HurryAppPleaseWork
 
         static List<Rect> SelectRoisByKeypoints(Mat gray, int roiSize, int maxRois)
         {
-            var rects = new List<Rect>(maxRois);
+            var rects = new List<Rect>();
 
             // Simple ORB detector
             using var orb = ORB.Create(nFeatures: 1000, fastThreshold: 5);
-
             var kps = orb.Detect(gray);
-
-            if (kps == null || kps.Length == 0) return SelectRoisByGrid(gray, roiSize, maxRois, stride: Math.Max(roiSize / 2, 20));
+            if (kps == null || kps.Length == 0)
+                return SelectRoisByGrid(gray, roiSize, maxRois, stride: Math.Max(roiSize / 2, 20));
 
             int half = roiSize / 2;
             int imgW = gray.Width;
             int imgH = gray.Height;
 
             // Accept keypoints by response; skip those whose centered ROI would go out of bounds
-            foreach (var kp in kps.OrderByDescending(k => k.Response).Take(maxRois))
+            foreach (var kp in kps.OrderByDescending(k => k.Response))
             {
+                if (rects.Count >= maxRois) break;
+
                 int cx = (int)Math.Round(kp.Pt.X);
                 int cy = (int)Math.Round(kp.Pt.Y);
 
                 // Without clamping: skip if ROI would be out of image bounds
-                if (cx - half < 0 || cy - half < 0 || cx + half > imgW || cy + half > imgH) continue;
+                if (cx - half < 0 || cy - half < 0 || cx + half > imgW || cy + half > imgH)
+                    continue;
 
                 rects.Add(new Rect(cx - half, cy - half, roiSize, roiSize));
             }
 
+            // Fallback grid (deterministic) to fill remaining slots
+            if (rects.Count < maxRois)
+            {
+                int stride = Math.Max(roiSize / 2, 20);
+                var grid = SelectRoisByGrid(gray, roiSize, maxRois - rects.Count, stride);
+                foreach (var r in grid)
+                {
+                    if (!rects.Any(existing => RectsOverlap(existing, r)))
+                    {
+                        rects.Add(r);
+                        if (rects.Count >= maxRois) break;
+                    }
+                }
+            }
+
             return rects;
+        }
+        static bool RectsOverlap(Rect a, Rect b)
+        {
+            return a.X < b.X + b.Width && a.X + a.Width > b.X &&
+                   a.Y < b.Y + b.Height && a.Y + a.Height > b.Y;
         }
 
         static List<Rect> SelectRoisByGrid(Mat gray, int roiSize, int maxRois, int stride)
