@@ -232,7 +232,9 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
 
     var templates = FingerPrintMatcher.GetRectanglesAndTemplates(imagegray);
 
-    if (store.items.Count == 0)
+    var count = await db.Results.CountAsync();
+
+    if (store.items.Count != count)
     {
         var raw = await db.Results
             .Select(x => new
