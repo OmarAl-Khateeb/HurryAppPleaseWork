@@ -328,6 +328,123 @@ app.MapPost("/match", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (
     return TypedResults.BadRequest("well");
 }).WithTags("match").DisableAntiforgery();
 
+app.MapPost("/match2", async Task<Results<Ok<ScoreResult>, BadRequest<string>>> (AppDbContext db, FingerPrintStore store, IFormFile file) =>
+{
+    if (file == null) return TypedResults.BadRequest("File or username is missing.");
+
+    using var ms = new MemoryStream();
+    await file.CopyToAsync(ms);
+    byte[] fileBytes = ms.ToArray();
+
+    if (fileBytes.Length == 0) return TypedResults.BadRequest("Empty file");
+
+    Console.WriteLine("Image data:");
+    Console.WriteLine(fileBytes);
+
+    using var image = Cv2.ImDecode(fileBytes, ImreadModes.Color);
+
+    using Mat imagegray = FingerPrintMatcher.Clahe(image);
+
+    fileBytes = FingerPrintMatcher.MatToBytes(imagegray);
+
+    var templates = FingerPrintMatcher.GetRectanglesAndTemplates(imagegray);
+
+    var count = await db.Results.CountAsync();
+
+    if (store.items.Count != count)
+    {
+        var raw = await db.Results
+            .Select(x => new
+            {
+                x.Id,
+                User = new UserRecord(x.User.Id, x.User.Username),
+                x.ImageMatrix,
+                Templates = x.Templates.Select(t => new { t.Rect, t.Template }).ToList()
+            })
+            .ToListAsync();
+
+        store.items = raw
+            .AsParallel()
+            .Select(x => new UserFingerPrintList(
+                x.Id,
+                x.User,
+                FingerPrintMatcher.MatFromBytes(x.ImageMatrix, ImreadModes.Unchanged),
+                x.ImageMatrix,
+                x.Templates.Select(t => new FingerprintList(t.Rect, new FingerprintTemplate(t.Template))).ToList()
+            ))
+            .ToList();
+    }
+
+    var timestamp = Stopwatch.GetTimestamp();
+
+    var bestMatch = store.items
+        .AsParallel()
+        .Select(user => new
+        {
+            User = user,
+            Anchors = FingerPrintMatcher
+                .FindTopAnchors(
+                    templates,
+                    user.Templates.Select(x => (rect: x.Rect, template: x.Template)).ToList()
+                )
+                .Where(a => a.score >= 20)
+                .ToList()
+        })
+        .Where(x => x.Anchors.Count != 0)
+        .Select(x => new
+        {
+            x.User,
+            BestOverlap = FingerPrintMatcher.FindBestOverlap(x.Anchors, imagegray, x.User.Image, 500)//this can be optimized
+        })
+        .OrderByDescending(x => x.BestOverlap.bestScore)
+        .FirstOrDefault();
+
+
+    if (bestMatch != null)
+    {
+        var checkin = new CheckIn
+        {
+            ProbResultId = bestMatch.User.Id,
+            ImageMatrix = fileBytes,
+            UserId = bestMatch.User.User.Id,
+            ResultScore = bestMatch.BestOverlap.bestScore
+        };
+
+        db.CheckIns.Add(checkin);
+
+        await db.SaveChangesAsync();
+    }
+
+    if (bestMatch is null)
+    {
+        var checkin = new CheckIn
+        {
+            ProbResultId = 1,
+            ImageMatrix = fileBytes,
+            UserId = 1,
+            ResultScore = 0
+        };
+
+        db.CheckIns.Add(checkin);
+
+        await db.SaveChangesAsync();
+
+
+        return TypedResults.BadRequest(checkin.Id.ToString());
+    }
+
+    if (bestMatch != null)
+    {
+        return TypedResults.Ok(new ScoreResult(
+            bestMatch.User.User,
+            bestMatch.BestOverlap.bestScore,
+            ScoreToCertainty(bestMatch.BestOverlap.bestScore),
+            $"{Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds}ms",
+            bestMatch.User.ImageMatrix));
+    }
+    return TypedResults.BadRequest("well");
+}).WithTags("match").DisableAntiforgery();
+
 app.MapGet("user/{userId:int}/fingerprint", async Task<Results<Ok<ListResponse<ProbResultRecord>>, NotFound<string>>>
     (AppDbContext db, int userId) =>
 {
